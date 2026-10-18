@@ -126,7 +126,11 @@ td.score-cell select.saved{background:#e9f7ef;border-color:#b9e4cb;color:#286b4d
       <div><div class="eyebrow">Buku Nilai Mata Pelajaran</div><h2 id="subjectTitle">Matematika</h2><p class="sub">Kelas VI B · SD ISLAM AL - FALAH</p></div>
       <button class="btn primary" id="exportSubjectBtn">⇩ Export Excel/CSV</button>
     </div>
-    <div class="tabs"><button class="tab active" data-tab="gradeTablePanel">Nilai Harian</button><button class="tab" data-tab="historyPanel">Riwayat Nilai</button></div>
+    <div class="tabs">
+      <button class="tab active" data-tab="gradeTablePanel">Nilai Harian</button>
+      <button class="tab" data-tab="testGradePanel">Nilai Ulangan</button>
+      <button class="tab" data-tab="historyPanel">Riwayat Nilai</button>
+    </div>
     <div class="panel" id="gradeTablePanel">
       <div class="toolbar">
         <div class="field"><label for="assessmentDate">Tanggal penilaian</label><input type="date" id="assessmentDate"></div>
@@ -135,6 +139,15 @@ td.score-cell select.saved{background:#e9f7ef;border-color:#b9e4cb;color:#286b4d
       </div>
       <div class="table-wrap"><table><thead><tr><th style="width:50px">No.</th><th>Nama Siswa</th><th style="width:180px">Nilai (70–100)</th><th style="width:120px">Status</th></tr></thead><tbody id="gradeTbody"></tbody></table></div>
       <div class="note">✓ Nilai disimpan otomatis di browser ini. Untuk menyimpan lintas perangkat atau dibuka guru lain, website nantinya perlu database online.</div>
+    </div>
+    <div class="panel" id="testGradePanel" hidden>
+      <div class="toolbar">
+        <div class="field"><label for="testAssessmentDate">Tanggal ulangan</label><input type="date" id="testAssessmentDate"></div>
+        <div class="field"><label for="testAssessmentName">Nama ulangan</label><input id="testAssessmentName" maxlength="80" placeholder="Contoh: Ulangan Bab 1"></div>
+        <button class="btn soft" id="saveTestAssessmentBtn">♡ Siapkan Ulangan</button>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th style="width:50px">No.</th><th>Nama Siswa</th><th style="width:180px">Nilai (70–100)</th><th style="width:120px">Status</th></tr></thead><tbody id="testGradeTbody"></tbody></table></div>
+      <div class="note">✓ Cara pengisian sama seperti Nilai Harian. Nilai ulangan disimpan terpisah dan muncul di Riwayat Nilai.</div>
     </div>
     <div class="panel" id="historyPanel" hidden>
       <div class="section-heading"><div><h3>Riwayat penilaian</h3><p>Semua nilai yang telah disimpan untuk mata pelajaran ini.</p></div><button class="btn soft" id="exportHistoryBtn">⇩ Export riwayat</button></div>
@@ -248,17 +261,18 @@ function renderSubjects(){
 function openSubject(name){
  currentSubject=name;document.getElementById("subjectTitle").textContent=name;document.getElementById("topTitle").textContent=name;
  document.getElementById("assessmentDate").value=todayISO();document.getElementById("assessmentName").value="";
+ document.getElementById("testAssessmentDate").value=todayISO();document.getElementById("testAssessmentName").value="";
  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab==="gradeTablePanel"));
- document.getElementById("gradeTablePanel").hidden=false;document.getElementById("historyPanel").hidden=true;
+ document.getElementById("gradeTablePanel").hidden=false;document.getElementById("testGradePanel").hidden=true;document.getElementById("historyPanel").hidden=true;
  goPage("gradePage");
 }
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
- document.getElementById("gradeTablePanel").hidden=t.dataset.tab!=="gradeTablePanel";
- document.getElementById("historyPanel").hidden=t.dataset.tab!=="historyPanel";
+ ["gradeTablePanel","testGradePanel","historyPanel"].forEach(id=>document.getElementById(id).hidden=t.dataset.tab!==id);
  if(t.dataset.tab==="historyPanel")renderHistory();
+ if(t.dataset.tab==="testGradePanel")renderTestGradeTable();
 }));
-function currentRecord(studentId,date,name){return state.grades.find(g=>g.studentId===studentId&&g.subject===currentSubject&&g.date===date&&g.assessment===name);}
+function currentRecord(studentId,date,name){return state.grades.find(g=>g.studentId===studentId&&g.subject===currentSubject&&g.date===date&&g.assessment===name&&(g.kind||"harian")==="harian");}
 function renderGradeTable(){
  const date=document.getElementById("assessmentDate").value||todayISO(), name=document.getElementById("assessmentName").value.trim();
  const body=document.getElementById("gradeTbody");
@@ -275,9 +289,35 @@ function renderGradeTable(){
    upsertGrade(sel.dataset.student,currentSubject,d,assessment,Number(sel.value));saveState();renderGradeTable();
  }));
 }
-function upsertGrade(studentId,subject,date,assessment,score){
- const existing=state.grades.find(g=>g.studentId===studentId&&g.subject===subject&&g.date===date&&g.assessment===assessment);
- if(existing)existing.score=score;else state.grades.push({id:"g"+Date.now()+Math.random().toString(16).slice(2),studentId,subject,date,assessment,score});
+function renderTestGradeTable(){
+ const date=document.getElementById("testAssessmentDate").value||todayISO();
+ const name=document.getElementById("testAssessmentName").value.trim()||"Ulangan Harian";
+ const body=document.getElementById("testGradeTbody");
+ if(!state.students.length){body.innerHTML='<tr><td colspan="4" class="empty">Belum ada siswa. Tambahkan siswa di menu Data Siswa.</td></tr>';return;}
+ body.innerHTML=state.students.map((s,i)=>{
+   const rec=state.grades.find(g=>g.studentId===s.id&&g.subject===currentSubject&&g.date===date&&g.assessment===name&&g.kind==="ulangan");
+   const value=rec?rec.score:"";
+   const options='<option value="">Pilih nilai</option>'+SCORE_VALUES.map(n=>`<option value="${n}" ${Number(value)===n?"selected":""}>${n}</option>`).join("");
+   return `<tr><td>${i+1}</td><td><strong>${esc(s.name)}</strong></td><td class="score-cell"><select aria-label="Nilai ulangan ${esc(s.name)}" data-test-student="${esc(s.id)}" class="${value!==""?"saved":""}">${options}</select></td><td>${value!==""?'<span style="color:#39805d;font-weight:750">✓ Tersimpan</span>':'<span style="color:#a18fa3">Belum diisi</span>'}</td></tr>`;
+ }).join("");
+ body.querySelectorAll("select[data-test-student]").forEach(sel=>sel.addEventListener("change",()=>{
+   if(!sel.value)return;
+   const assessment=document.getElementById("testAssessmentName").value.trim()||"Ulangan Harian";
+   if(!document.getElementById("testAssessmentName").value.trim())document.getElementById("testAssessmentName").value=assessment;
+   const d=document.getElementById("testAssessmentDate").value||todayISO();
+   upsertGrade(sel.dataset.testStudent,currentSubject,d,assessment,Number(sel.value),"ulangan");
+   saveState();renderTestGradeTable();
+ }));
+}
+document.getElementById("testAssessmentDate").addEventListener("change",renderTestGradeTable);
+document.getElementById("testAssessmentName").addEventListener("change",renderTestGradeTable);
+document.getElementById("saveTestAssessmentBtn").addEventListener("click",()=>{
+ if(!document.getElementById("testAssessmentName").value.trim())document.getElementById("testAssessmentName").value="Ulangan Harian";
+ renderTestGradeTable();showToast("Siap mencatat nilai ulangan.");
+});
+function upsertGrade(studentId,subject,date,assessment,score,kind="harian"){
+ const existing=state.grades.find(g=>g.studentId===studentId&&g.subject===subject&&g.date===date&&g.assessment===assessment&&(g.kind||"harian")===kind);
+ if(existing)existing.score=score;else state.grades.push({id:"g"+Date.now()+Math.random().toString(16).slice(2),studentId,subject,date,assessment,score,kind});
 }
 document.getElementById("assessmentDate").addEventListener("change",renderGradeTable);
 document.getElementById("assessmentName").addEventListener("change",renderGradeTable);
@@ -288,7 +328,7 @@ document.getElementById("saveAssessmentBtn").addEventListener("click",()=>{
 function renderHistory(){
  const records=state.grades.filter(g=>g.subject===currentSubject).sort((a,b)=>b.date.localeCompare(a.date));
  const body=document.getElementById("historyTbody");
- body.innerHTML=records.length?records.map(g=>{const s=state.students.find(x=>x.id===g.studentId);return `<tr><td>${esc(s?.name||"(Siswa tidak ditemukan)")}</td><td>${formatDate(g.date)}</td><td>${esc(g.assessment)}</td><td><strong>${g.score}</strong></td></tr>`}).join(""):'<tr><td colspan="4" class="empty">Belum ada nilai tersimpan.</td></tr>';
+ body.innerHTML=records.length?records.map(g=>{const s=state.students.find(x=>x.id===g.studentId);return `<tr><td>${esc(s?.name||"(Siswa tidak ditemukan)")}</td><td>${formatDate(g.date)}</td><td>${esc(g.assessment)}${g.kind==="ulangan"?" (Ulangan)":""}</td><td><strong>${g.score}</strong></td></tr>`}).join(""):'<tr><td colspan="4" class="empty">Belum ada nilai tersimpan.</td></tr>';
 }
 function renderStudents(){
  const body=document.getElementById("studentsTbody");
@@ -321,10 +361,10 @@ function renderReport(){
  const thead=document.getElementById("reportThead");
  if(mode==="single"){
    thead.innerHTML='<tr><th>No.</th><th>Tanggal</th><th>Mata Pelajaran</th><th>Penilaian</th><th>Nilai</th></tr>';
-   document.getElementById("reportTbody").innerHTML=records.length?records.map((g,i)=>`<tr><td>${i+1}</td><td>${formatDate(g.date)}</td><td>${esc(g.subject)}</td><td>${esc(g.assessment)}</td><td><strong>${g.score}</strong></td></tr>`).join(""):'<tr><td colspan="5" class="empty">Belum ada nilai untuk pilihan ini.</td></tr>';
+   document.getElementById("reportTbody").innerHTML=records.length?records.map((g,i)=>`<tr><td>${i+1}</td><td>${formatDate(g.date)}</td><td>${esc(g.subject)}</td><td>${esc(g.assessment)}${g.kind==="ulangan"?" (Ulangan)":""}</td><td><strong>${g.score}</strong></td></tr>`).join(""):'<tr><td colspan="5" class="empty">Belum ada nilai untuk pilihan ini.</td></tr>';
  } else {
    thead.innerHTML='<tr><th>No.</th><th>Nama Siswa</th><th>Tanggal</th><th>Mata Pelajaran</th><th>Penilaian</th><th>Nilai</th></tr>';
-   document.getElementById("reportTbody").innerHTML=records.length?records.map((g,i)=>{const s=state.students.find(x=>x.id===g.studentId);return `<tr><td>${i+1}</td><td>${esc(s?.name||"(Siswa tidak ditemukan)")}</td><td>${formatDate(g.date)}</td><td>${esc(g.subject)}</td><td>${esc(g.assessment)}</td><td><strong>${g.score}</strong></td></tr>`}).join(""):'<tr><td colspan="6" class="empty">Belum ada nilai tersimpan untuk pilihan ini.</td></tr>';
+   document.getElementById("reportTbody").innerHTML=records.length?records.map((g,i)=>{const s=state.students.find(x=>x.id===g.studentId);return `<tr><td>${i+1}</td><td>${esc(s?.name||"(Siswa tidak ditemukan)")}</td><td>${formatDate(g.date)}</td><td>${esc(g.subject)}</td><td>${esc(g.assessment)}${g.kind==="ulangan"?" (Ulangan)":""}</td><td><strong>${g.score}</strong></td></tr>`}).join(""):'<tr><td colspan="6" class="empty">Belum ada nilai tersimpan untuk pilihan ini.</td></tr>';
  }
 }
 document.getElementById("reportMode").addEventListener("change",renderReport);
@@ -337,8 +377,8 @@ document.getElementById("exportReportBtn").addEventListener("click",()=>{
  const studentId=document.getElementById("reportStudent").value;
  const subject=document.getElementById("reportSubject").value;
  const records=state.grades.filter(g=>(mode!=="single"||g.studentId===studentId)&&(subject==="all"||g.subject===subject));
- const rows=[["BUKU NILAI DIGITAL","SD ISLAM AL - FALAH","KELAS VI B"],["Tampilan",mode==="single"?"Siswa tertentu":"Semua siswa"],["No","Nama Siswa","Tanggal","Mata Pelajaran","Penilaian","Nilai"]];
- records.forEach((g,i)=>{const s=state.students.find(x=>x.id===g.studentId);rows.push([i+1,s?.name||"",formatDate(g.date),g.subject,g.assessment,g.score]);});
+ const rows=[["BUKU NILAI DIGITAL","SD ISLAM AL - FALAH","KELAS VI B"],["Tampilan",mode==="single"?"Siswa tertentu":"Semua siswa"],["No","Nama Siswa","Tanggal","Mata Pelajaran","Jenis","Penilaian","Nilai"]];
+ records.forEach((g,i)=>{const s=state.students.find(x=>x.id===g.studentId);rows.push([i+1,s?.name||"",formatDate(g.date),g.subject,g.kind==="ulangan"?"Ulangan":"Harian",g.assessment,g.score]);});
  const name=mode==="single"?(state.students.find(s=>s.id===studentId)?.name||"Siswa"):"Semua_Siswa";
  downloadCSV("Rapor_"+name.replace(/[^a-z0-9]+/gi,"_")+".csv",rows);
 });
@@ -351,8 +391,8 @@ function downloadCSV(filename,rows){
  showToast("File CSV siap dibuka di Microsoft Excel.");
 }
 function subjectRows(subject){
- const rows=[["BUKU NILAI DIGITAL","SD ISLAM AL - FALAH","KELAS VI B"],["Mata Pelajaran",subject],["No","Nama Siswa","Tanggal","Penilaian","Nilai"]];
- state.grades.filter(g=>g.subject===subject).sort((a,b)=>a.date.localeCompare(b.date)).forEach((g,i)=>{const s=state.students.find(x=>x.id===g.studentId);rows.push([i+1,s?.name||"",formatDate(g.date),g.assessment,g.score]);});
+ const rows=[["BUKU NILAI DIGITAL","SD ISLAM AL - FALAH","KELAS VI B"],["Mata Pelajaran",subject],["No","Nama Siswa","Tanggal","Jenis","Penilaian","Nilai"]];
+ state.grades.filter(g=>g.subject===subject).sort((a,b)=>a.date.localeCompare(b.date)).forEach((g,i)=>{const s=state.students.find(x=>x.id===g.studentId);rows.push([i+1,s?.name||"",formatDate(g.date),g.kind==="ulangan"?"Ulangan":"Harian",g.assessment,g.score]);});
  return rows;
 }
 document.getElementById("exportSubjectBtn").addEventListener("click",()=>downloadCSV("Buku_Nilai_"+currentSubject.replace(/[^a-z0-9]+/gi,"_")+"_Kelas_VI_B.csv",subjectRows(currentSubject)));
